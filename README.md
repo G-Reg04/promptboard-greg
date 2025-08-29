@@ -4,21 +4,32 @@
 
 A fast, client-side prompt library with tags, instant search, one-click copy, and JSON/Markdown export. Tailwind + vanilla JS.
 
-## 🚀 Features
+## 🚀 MVP Features
 
-- **Instant Search**: Lightning-fast prompt filtering and search
-- **Tag System**: Organize prompts with custom tags
-- **One-Click Copy**: Copy prompts to clipboard instantly  
-- **Import/Export**: JSON and Markdown export/import support
-- **Client-Side**: No backend required, works entirely in the browser
-- **Dark Mode**: Beautiful dark interface by default
-- **Responsive**: Works seamlessly on desktop and mobile
+- **✅ CRUD Operations**: Create, read, update, delete prompts with LocalStorage persistence
+- **✅ Instant Search**: Lightning-fast prompt filtering with 150ms debounce
+- **✅ Multi-Tag Filters**: Filter by multiple tags with AND logic
+- **✅ One-Click Copy**: Copy prompt content to clipboard with toast feedback
+- **✅ Export/Import**: JSON and Markdown export with merge/replace import options
+- **✅ URL State**: Search query and tag filters persist in URL
+- **✅ Keyboard Shortcuts**: `/` to search, `n` for new prompt, `Ctrl+Enter` to save
+- **✅ Accessibility**: Full ARIA support, focus management, screen reader friendly
+- **✅ Client-Side**: No backend required, works entirely in the browser
+- **✅ Dark Mode**: Beautiful dark interface by default
+- **✅ Responsive**: Works seamlessly on desktop and mobile
+
+## ⌨️ Keyboard Shortcuts
+
+- **`/`** - Focus search input
+- **`n`** - Create new prompt  
+- **`Escape`** - Clear search and filters, or close modal
+- **`Ctrl/Cmd + Enter`** - Save prompt in modal
 
 ## 🛠 Tech Stack
 
-- **Frontend**: Vanilla JavaScript (ES6+)
+- **Frontend**: Vanilla JavaScript (ES6+ modules)
 - **Styling**: Tailwind CSS (CDN)
-- **Storage**: Local Storage API
+- **Storage**: Local Storage API with migration support
 - **Build**: No build process required
 - **Deploy**: Vercel-ready static site
 
@@ -63,8 +74,14 @@ Or manually:
 
 ```
 promptboard-greg/
-├── index.html          # Main HTML file
-├── app.js              # Application logic
+├── index.html          # Main HTML file (loads app.js as ES module)
+├── app.js              # Main application orchestrator
+├── js/                 # ES6 modules
+│   ├── storage.js      # LocalStorage operations, state management, UUID
+│   ├── utils.js        # Utilities (debounce, sanitize, focusTrap, downloadFile)  
+│   ├── render.js       # UI rendering (app, cards, filters, toasts, modals)
+│   ├── logic.js        # CRUD operations, search, filtering, clipboard
+│   └── io.js           # Import/export functionality (JSON, Markdown)
 ├── assets/
 │   ├── icon.svg        # App favicon
 │   └── readme-banner.svg # README banner
@@ -73,18 +90,46 @@ promptboard-greg/
 └── README.md           # This file
 ```
 
-## 🎯 Roadmap
+## 💾 Data Schema
 
-- [ ] CRUD operations for prompts
-- [ ] Advanced search and filtering
-- [ ] Tag management system
-- [ ] Copy to clipboard functionality
-- [ ] JSON/Markdown export
-- [ ] Import from various formats
-- [ ] Keyboard shortcuts
-- [ ] Prompt templates
-- [ ] Bulk operations
-- [ ] PWA support
+LocalStorage key: `promptboard:v1`
+
+```json
+{
+  "version": 1,
+  "prompts": [
+    {
+      "id": "uuid-v4",
+      "title": "Prompt Title",
+      "content": "Prompt content...",
+      "tags": ["tag1", "tag2", "tag3"],
+      "createdAt": 1690000000000,
+      "updatedAt": 1690000000000
+    }
+  ]
+}
+```
+
+## 📤 Export/Import
+
+### Export Formats
+
+- **JSON**: Full data export with metadata for re-importing
+- **Markdown**: Human-readable format with sections for each prompt
+
+### Import Options
+
+- **Merge**: Add new prompts, skip duplicates (based on title+content hash)
+- **Replace**: Replace all existing prompts with imported data
+
+### Validation
+
+- Title is required (max 200 chars)
+- Content is optional (max 50,000 chars)  
+- Tags are optional (max 20 tags, 50 chars each)
+- Invalid items are skipped with detailed error reporting
+
+
 
 ## 📝 License
 
