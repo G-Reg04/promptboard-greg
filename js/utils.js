@@ -126,6 +126,24 @@ export const formatDate = (timestamp) => {
 };
 
 /**
+ * Format current date as YYYY-MM-DD
+ */
+export const formatDateTime = (includeTime = false) => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    
+    if (!includeTime) {
+        return `${year}-${month}-${day}`;
+    }
+    
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    return `${year}-${month}-${day} ${hours}:${minutes}`;
+};
+
+/**
  * Truncate text with ellipsis
  */
 export const truncate = (text, maxLength = 100) => {
@@ -202,4 +220,77 @@ export const copyToClipboard = async (text) => {
         console.error('Failed to copy to clipboard:', error);
         return false;
     }
+};
+
+/**
+ * Parse placeholders from text content
+ * Returns array of unique placeholders with their default values
+ */
+export const parsePlaceholders = (text) => {
+    if (!text || typeof text !== 'string') {
+        return [];
+    }
+    
+    // Regex to match {{name}} and {{name|default}}
+    const placeholderRegex = /\{\{([^}|]+)(\|([^}]*))?\}\}/g;
+    const placeholders = new Map();
+    
+    let match;
+    while ((match = placeholderRegex.exec(text)) !== null) {
+        const name = match[1].trim();
+        const defaultValue = match[3] || '';
+        
+        if (name && !placeholders.has(name)) {
+            placeholders.set(name, {
+                name,
+                defaultValue,
+                hasDefault: match[3] !== undefined
+            });
+        }
+    }
+    
+    return Array.from(placeholders.values());
+};
+
+/**
+ * Apply placeholder substitutions to text
+ * Returns object with processed text and any missing placeholders
+ */
+export const applyPlaceholders = (text, values = {}) => {
+    if (!text || typeof text !== 'string') {
+        return { text: text || '', missing: [] };
+    }
+    
+    const missing = [];
+    const today = formatDateTime(false);
+    const now = formatDateTime(true);
+    
+    // Add auto values if they exist as placeholders in text
+    const autoValues = { ...values };
+    if (text.includes('{{today}}')) {
+        autoValues.today = today;
+    }
+    if (text.includes('{{now}}')) {
+        autoValues.now = now;
+    }
+    
+    const processedText = text.replace(/\{\{([^}|]+)(\|([^}]*))?\}\}/g, (match, name, _, defaultValue) => {
+        const trimmedName = name.trim();
+        
+        if (autoValues.hasOwnProperty(trimmedName) && autoValues[trimmedName] !== '') {
+            return autoValues[trimmedName];
+        }
+        
+        if (defaultValue !== undefined) {
+            return defaultValue;
+        }
+        
+        missing.push(trimmedName);
+        return match; // Keep original placeholder if no value provided
+    });
+    
+    return {
+        text: processedText,
+        missing: [...new Set(missing)] // Remove duplicates
+    };
 };

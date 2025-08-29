@@ -4,9 +4,10 @@
  */
 
 import { debounce, createFocusTrap, parseTagsString } from './js/utils.js';
-import { renderApp, renderTagFilters, renderPromptCards, renderModal, showToast, showConfirmDialog } from './js/render.js';
-import { processPrompts, createPrompt, updatePrompt, deletePrompt, copyPromptToClipboard, getAllTags, getPromptById, validatePromptData } from './js/logic.js';
-import { exportToJSON, exportToMarkdown, handleImportFile } from './js/io.js';
+import { renderApp, renderTagFilters, renderPromptCards, renderModal, showToast, showConfirmDialog, renderPlaceholderModal, renderSettingsModal, showRestoreModeDialog } from './js/render.js';
+import { processPrompts, createPrompt, updatePrompt, deletePrompt, copyPromptToClipboard, getAllTags, getPromptById, validatePromptData, detectPromptPlaceholders, getPromptVariablesWithAuto, insertAndCopyPrompt, duplicatePrompt } from './js/logic.js';
+import { exportToJSON, exportToMarkdown, handleImportFile, autoBackupMaybe, listLocalBackups, restoreLocalBackup, downloadLocalBackup } from './js/io.js';
+import { getPreferences, setPreferences } from './js/storage.js';
 
 // Application state
 let currentState = {
@@ -224,24 +225,27 @@ const handleFormSubmit = async (e) => {
         return;
     }
     
-    try {
-        if (currentState.currentEditId) {
-            // Update existing prompt
-            await updatePrompt(currentState.currentEditId, data);
-            showToast('Prompt updated!', 'success');
-        } else {
-            // Create new prompt
-            await createPrompt(data);
-            showToast('Prompt created!', 'success');
+            try {
+            if (currentState.currentEditId) {
+                // Update existing prompt
+                await updatePrompt(currentState.currentEditId, data);
+                showToast('Prompt updated!', 'success');
+            } else {
+                // Create new prompt
+                await createPrompt(data);
+                showToast('Prompt created!', 'success');
+            }
+            
+            hideModal();
+            renderCurrentState();
+            
+            // Check for auto-backup
+            autoBackupMaybe();
+            
+        } catch (error) {
+            console.error('Save failed:', error);
+            showToast(error.message || 'Failed to save prompt', 'error');
         }
-        
-        hideModal();
-        renderCurrentState();
-        
-    } catch (error) {
-        console.error('Save failed:', error);
-        showToast(error.message || 'Failed to save prompt', 'error');
-    }
 };
 
 /**
@@ -263,11 +267,226 @@ const handleDelete = async (promptId) => {
             await deletePrompt(promptId);
             showToast('Prompt deleted', 'success');
             renderCurrentState();
+            
+            // Check for auto-backup
+            autoBackupMaybe();
         } catch (error) {
             console.error('Delete failed:', error);
             showToast('Failed to delete prompt', 'error');
         }
     }
+};
+
+/**
+ * Handle prompt duplication
+ */
+const handleDuplicate = async (promptId) => {
+    try {
+        const duplicated = duplicatePrompt(promptId);
+        showToast('Prompt duplicated', 'success');
+        renderCurrentState();
+        
+        // Check for auto-backup
+        autoBackupMaybe();
+        
+        return duplicated;
+    } catch (error) {
+        console.error('Duplicate failed:', error);
+        showToast('Failed to duplicate prompt', 'error');
+    }
+};
+
+/**
+ * Handle Insert & Copy with placeholders
+ */
+const handleInsertAndCopy = async (promptId) => {
+    const placeholders = detectPromptPlaceholders(promptId);
+    
+    if (placeholders.length === 0) {
+        // No placeholders, act like regular copy
+        return copyPromptToClipboard(promptId);
+    }
+    
+    // Show placeholder modal
+    const cachedValues = getPromptVariablesWithAuto(promptId);
+    renderPlaceholderModal(promptId, placeholders, cachedValues);
+    
+    const modal = document.getElementById('placeholder-dialog');
+    if (modal) {
+        currentState.modalCleanup = createFocusTrap(modal);
+    }
+    
+    setupPlaceholderModalEventListeners();
+};
+
+/**
+ * Setup placeholder modal event listeners
+ */
+const setupPlaceholderModalEventListeners = () => {
+    const form = document.getElementById('placeholder-form');
+    const closeBtn = document.getElementById('placeholder-close-btn');
+    const cancelBtn = document.getElementById('placeholder-cancel-btn');
+    const overlay = document.getElementById('placeholder-overlay');
+    
+    const closePlaceholderModal = () => {
+        if (currentState.modalCleanup) {
+            currentState.modalCleanup();
+            currentState.modalCleanup = null;
+        }
+        document.getElementById('modal-container').innerHTML = '';
+    };
+    
+    // Form submission
+    if (form) {
+        form.onsubmit = async (e) => {
+            e.preventDefault();
+            
+            const promptId = document.getElementById('placeholder-dialog')?.dataset.promptId;
+            if (!promptId) return;
+            
+            // Collect form values
+            const formData = new FormData(form);
+            const variables = {};
+            for (const [key, value] of formData.entries()) {
+                if (value.trim()) {
+                    variables[key] = value.trim();
+                }
+            }
+            
+            // Apply placeholders and copy
+            const success = await insertAndCopyPrompt(promptId, variables);
+            
+            if (success) {
+                closePlaceholderModal();
+            }
+        };
+    }
+    
+    // Close buttons
+    if (closeBtn) closeBtn.onclick = closePlaceholderModal;
+    if (cancelBtn) cancelBtn.onclick = closePlaceholderModal;
+    
+    // Overlay click
+    if (overlay) {
+        overlay.onclick = (e) => {
+            if (e.target.id === 'placeholder-overlay') {
+                closePlaceholderModal();
+            }
+        };
+    }
+    
+    // ESC key and Enter key
+    const handlePlaceholderKeydown = (e) => {
+        if (e.key === 'Escape') {
+            closePlaceholderModal();
+            document.removeEventListener('keydown', handlePlaceholderKeydown);
+        } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+            e.preventDefault();
+            form?.dispatchEvent(new Event('submit'));
+        }
+    };
+    document.addEventListener('keydown', handlePlaceholderKeydown);
+};
+
+/**
+ * Show settings modal
+ */
+const showSettings = () => {
+    const preferences = getPreferences();
+    const backups = listLocalBackups();
+    
+    renderSettingsModal(preferences, backups);
+    
+    const modal = document.getElementById('settings-dialog');
+    if (modal) {
+        currentState.modalCleanup = createFocusTrap(modal);
+    }
+    
+    setupSettingsModalEventListeners();
+};
+
+/**
+ * Setup settings modal event listeners
+ */
+const setupSettingsModalEventListeners = () => {
+    const closeBtn = document.getElementById('settings-close-btn');
+    const saveBtn = document.getElementById('settings-save-btn');
+    const overlay = document.getElementById('settings-overlay');
+    
+    const closeSettingsModal = () => {
+        if (currentState.modalCleanup) {
+            currentState.modalCleanup();
+            currentState.modalCleanup = null;
+        }
+        document.getElementById('modal-container').innerHTML = '';
+    };
+    
+    // Save settings
+    if (saveBtn) {
+        saveBtn.onclick = () => {
+            const autoBackupEnabled = document.getElementById('auto-backup-enabled')?.checked || false;
+            const autoBackupThreshold = parseInt(document.getElementById('backup-threshold')?.value) || 10;
+            
+            const currentPrefs = getPreferences();
+            const newPrefs = {
+                ...currentPrefs,
+                autoBackupEnabled,
+                autoBackupThreshold
+            };
+            
+            if (setPreferences(newPrefs)) {
+                showToast('Settings saved', 'success');
+                closeSettingsModal();
+            } else {
+                showToast('Failed to save settings', 'error');
+            }
+        };
+    }
+    
+    // Close buttons
+    if (closeBtn) closeBtn.onclick = closeSettingsModal;
+    
+    // Overlay click
+    if (overlay) {
+        overlay.onclick = (e) => {
+            if (e.target.id === 'settings-overlay') {
+                closeSettingsModal();
+            }
+        };
+    }
+    
+    // Backup actions
+    document.addEventListener('click', async (e) => {
+        if (e.target.classList.contains('backup-download-btn')) {
+            const backupId = e.target.dataset.backupId;
+            if (backupId) {
+                downloadLocalBackup(backupId);
+            }
+        }
+        
+        if (e.target.classList.contains('backup-restore-btn')) {
+            const backupId = e.target.dataset.backupId;
+            if (backupId) {
+                const mode = await showRestoreModeDialog();
+                if (mode) {
+                    const success = await restoreLocalBackup(backupId, mode);
+                    if (success) {
+                        renderCurrentState();
+                        closeSettingsModal();
+                    }
+                }
+            }
+        }
+    });
+    
+    // ESC key
+    const handleSettingsKeydown = (e) => {
+        if (e.key === 'Escape') {
+            closeSettingsModal();
+            document.removeEventListener('keydown', handleSettingsKeydown);
+        }
+    };
+    document.addEventListener('keydown', handleSettingsKeydown);
 };
 
 /**
@@ -320,16 +539,18 @@ const setupExportMenu = () => {
         };
     }
     
-    if (importFile) {
-        importFile.onchange = async (e) => {
-            const success = await handleImportFile(e);
-            if (success) {
-                renderCurrentState();
-            }
-            menu.classList.add('hidden');
-            menuBtn.setAttribute('aria-expanded', 'false');
-        };
-    }
+            if (importFile) {
+            importFile.onchange = async (e) => {
+                const success = await handleImportFile(e);
+                if (success) {
+                    renderCurrentState();
+                    // Check for auto-backup after import
+                    autoBackupMaybe();
+                }
+                menu.classList.add('hidden');
+                menuBtn.setAttribute('aria-expanded', 'false');
+            };
+        }
 };
 
 /**
@@ -367,6 +588,12 @@ const setupKeyboardShortcuts = () => {
                 showPromptModal();
                 break;
                 
+            case 'b':
+            case 'B':
+                e.preventDefault();
+                showSettings();
+                break;
+                
             case 'Escape':
                 // Clear search and filters
                 currentState.searchQuery = '';
@@ -389,6 +616,12 @@ const initializeUI = () => {
     const searchInput = document.getElementById('search-input');
     if (searchInput) {
         searchInput.oninput = (e) => handleSearch(e.target.value);
+    }
+    
+    // Settings button
+    const settingsBtn = document.getElementById('settings-btn');
+    if (settingsBtn) {
+        settingsBtn.onclick = () => showSettings();
     }
     
     // New prompt button
@@ -417,10 +650,24 @@ const initializeUI = () => {
         }
         
         // Prompt card actions
+        if (e.target.closest('.insert-copy-btn')) {
+            const promptId = e.target.closest('.insert-copy-btn').dataset.id;
+            if (promptId) {
+                handleInsertAndCopy(promptId);
+            }
+        }
+        
         if (e.target.closest('.copy-btn')) {
             const promptId = e.target.closest('.copy-btn').dataset.id;
             if (promptId) {
                 copyPromptToClipboard(promptId);
+            }
+        }
+        
+        if (e.target.closest('.duplicate-btn')) {
+            const promptId = e.target.closest('.duplicate-btn').dataset.id;
+            if (promptId) {
+                handleDuplicate(promptId);
             }
         }
         

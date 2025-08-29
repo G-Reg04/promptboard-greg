@@ -2,8 +2,8 @@
  * I/O module - handles import/export functionality (JSON and Markdown)
  */
 
-import { getState } from './storage.js';
-import { downloadFile, formatDate } from './utils.js';
+import { getState, getPreferences, resetChangeCounter, saveLocalBackup, getLocalBackups } from './storage.js';
+import { downloadFile, formatDate, formatDateTime } from './utils.js';
 import { batchCreatePrompts } from './logic.js';
 import { showToast, showConfirmDialog } from './render.js';
 
@@ -411,4 +411,152 @@ export const getExportStats = () => {
         oldestPrompt: Math.min(...prompts.map(p => p.createdAt)),
         newestPrompt: Math.max(...prompts.map(p => p.updatedAt))
     };
+};
+
+/**
+ * Create backup blob data
+ */
+export const makeBackupBlob = () => {
+    const state = getState();
+    const exportData = {
+        ...state,
+        exportedAt: Date.now(),
+        exportedBy: 'PromptBoard Auto-Backup'
+    };
+    
+    return JSON.stringify(exportData, null, 2);
+};
+
+/**
+ * Check if auto-backup should be triggered and execute if needed
+ */
+export const autoBackupMaybe = () => {
+    const prefs = getPreferences();
+    
+    if (!prefs.autoBackupEnabled) {
+        return false;
+    }
+    
+    if ((prefs.changeCounter || 0) >= prefs.autoBackupThreshold) {
+        return triggerAutoBackup();
+    }
+    
+    return false;
+};
+
+/**
+ * Trigger auto-backup: download file and save to local ring buffer
+ */
+const triggerAutoBackup = () => {
+    try {
+        const backupData = makeBackupBlob();
+        const timestamp = formatDateTime(true).replace(/[:\s]/g, '').replace(/-/g, '');
+        const filename = `promptboard-autobackup-${timestamp}.json`;
+        
+        // Download backup file
+        downloadFile(backupData, filename, 'application/json');
+        
+        // Save to local ring buffer
+        const state = getState();
+        saveLocalBackup(state);
+        
+        // Reset counter
+        resetChangeCounter();
+        
+        showToast('Auto-backup saved', 'success');
+        
+        return true;
+    } catch (error) {
+        console.error('Auto-backup failed:', error);
+        showToast('Auto-backup failed', 'error');
+        return false;
+    }
+};
+
+/**
+ * Get list of local backups with formatted info
+ */
+export const listLocalBackups = () => {
+    const backups = getLocalBackups();
+    
+    return backups.map(backup => ({
+        ...backup,
+        formattedDate: formatDate(backup.timestamp),
+        promptCount: backup.data?.prompts?.length || 0
+    }));
+};
+
+/**
+ * Restore backup from local ring buffer
+ */
+export const restoreLocalBackup = async (backupId, mode = 'merge') => {
+    try {
+        const backups = getLocalBackups();
+        const backup = backups.find(b => b.id === backupId);
+        
+        if (!backup) {
+            showToast('Backup not found', 'error');
+            return false;
+        }
+        
+        if (!backup.data || !backup.data.prompts) {
+            showToast('Invalid backup data', 'error');
+            return false;
+        }
+        
+        // Use existing import logic
+        const results = batchCreatePrompts(backup.data.prompts, mode);
+        
+        if (results.created > 0) {
+            const message = `Backup restored (${mode}): ${results.created} prompts` + 
+                          (results.skipped > 0 ? `, skipped ${results.skipped}` : '');
+            showToast(message, 'success');
+            return true;
+        } else if (results.errors.length > 0) {
+            showToast('Backup restore failed with errors', 'error');
+            return false;
+        } else {
+            showToast('No new prompts from backup', 'info');
+            return true;
+        }
+        
+    } catch (error) {
+        console.error('Backup restore failed:', error);
+        showToast('Backup restore failed', 'error');
+        return false;
+    }
+};
+
+/**
+ * Download a local backup as JSON file
+ */
+export const downloadLocalBackup = (backupId) => {
+    try {
+        const backups = getLocalBackups();
+        const backup = backups.find(b => b.id === backupId);
+        
+        if (!backup) {
+            showToast('Backup not found', 'error');
+            return false;
+        }
+        
+        const exportData = {
+            ...backup.data,
+            exportedAt: Date.now(),
+            exportedBy: 'PromptBoard Local Backup'
+        };
+        
+        const jsonString = JSON.stringify(exportData, null, 2);
+        const timestamp = formatDateTime(true).replace(/[:\s]/g, '').replace(/-/g, '');
+        const filename = `promptboard-backup-${timestamp}.json`;
+        
+        downloadFile(jsonString, filename, 'application/json');
+        showToast('Backup downloaded', 'success');
+        
+        return true;
+    } catch (error) {
+        console.error('Backup download failed:', error);
+        showToast('Backup download failed', 'error');
+        return false;
+    }
 };

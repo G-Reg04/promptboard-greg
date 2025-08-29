@@ -3,6 +3,9 @@
  */
 
 const STORAGE_KEY = 'promptboard:v1';
+const PREFERENCES_KEY = 'promptboard:prefs:v1';
+const VARIABLES_KEY_PREFIX = 'promptboard:vars:v1:';
+const BACKUPS_KEY = 'promptboard:backups:v1';
 const CURRENT_VERSION = 1;
 
 /**
@@ -130,5 +133,145 @@ export const getStorageInfo = () => {
         };
     } catch (error) {
         return { size: 0, sizeKB: 0 };
+    }
+};
+
+/**
+ * Default preferences
+ */
+const defaultPreferences = {
+    autoBackupEnabled: true,
+    autoBackupThreshold: 10,
+    changeCounter: 0
+};
+
+/**
+ * Get user preferences
+ */
+export const getPreferences = () => {
+    try {
+        const stored = localStorage.getItem(PREFERENCES_KEY);
+        if (!stored) {
+            return { ...defaultPreferences };
+        }
+        
+        const parsed = JSON.parse(stored);
+        return { ...defaultPreferences, ...parsed };
+    } catch (error) {
+        console.warn('Failed to load preferences:', error);
+        return { ...defaultPreferences };
+    }
+};
+
+/**
+ * Save user preferences
+ */
+export const setPreferences = (preferences) => {
+    try {
+        localStorage.setItem(PREFERENCES_KEY, JSON.stringify(preferences));
+        return true;
+    } catch (error) {
+        console.error('Failed to save preferences:', error);
+        return false;
+    }
+};
+
+/**
+ * Increment change counter for auto-backup
+ */
+export const incrementChangeCounter = () => {
+    const prefs = getPreferences();
+    prefs.changeCounter = (prefs.changeCounter || 0) + 1;
+    setPreferences(prefs);
+    return prefs.changeCounter;
+};
+
+/**
+ * Reset change counter
+ */
+export const resetChangeCounter = () => {
+    const prefs = getPreferences();
+    prefs.changeCounter = 0;
+    setPreferences(prefs);
+};
+
+/**
+ * Get cached variables for a prompt
+ */
+export const getPromptVariables = (promptId) => {
+    try {
+        const stored = localStorage.getItem(VARIABLES_KEY_PREFIX + promptId);
+        return stored ? JSON.parse(stored) : {};
+    } catch (error) {
+        console.warn('Failed to load prompt variables:', error);
+        return {};
+    }
+};
+
+/**
+ * Save cached variables for a prompt
+ */
+export const setPromptVariables = (promptId, variables) => {
+    try {
+        localStorage.setItem(VARIABLES_KEY_PREFIX + promptId, JSON.stringify(variables));
+        return true;
+    } catch (error) {
+        console.error('Failed to save prompt variables:', error);
+        return false;
+    }
+};
+
+/**
+ * Get local backups (ring buffer)
+ */
+export const getLocalBackups = () => {
+    try {
+        const stored = localStorage.getItem(BACKUPS_KEY);
+        return stored ? JSON.parse(stored) : [];
+    } catch (error) {
+        console.warn('Failed to load local backups:', error);
+        return [];
+    }
+};
+
+/**
+ * Save local backup (maintain ring buffer of max 3 items)
+ */
+export const saveLocalBackup = (data) => {
+    try {
+        const backups = getLocalBackups();
+        const newBackup = {
+            id: uuid(),
+            timestamp: now(),
+            data: data
+        };
+        
+        // Add to beginning and keep only last 3
+        backups.unshift(newBackup);
+        const trimmedBackups = backups.slice(0, 3);
+        
+        localStorage.setItem(BACKUPS_KEY, JSON.stringify(trimmedBackups));
+        return newBackup;
+    } catch (error) {
+        console.error('Failed to save local backup:', error);
+        return null;
+    }
+};
+
+/**
+ * Clear all prompt variables cache
+ */
+export const clearAllPromptVariables = () => {
+    try {
+        const keys = Object.keys(localStorage);
+        keys.forEach(key => {
+            if (key.startsWith(VARIABLES_KEY_PREFIX)) {
+                localStorage.removeItem(key);
+            }
+        });
+        return true;
+    } catch (error) {
+        console.error('Failed to clear prompt variables:', error);
+        return false;
     }
 };

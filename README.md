@@ -7,12 +7,15 @@ A fast, client-side prompt library with tags, instant search, one-click copy, an
 ## 🚀 MVP Features
 
 - **✅ CRUD Operations**: Create, read, update, delete prompts with LocalStorage persistence
+- **✅ Variable Placeholders**: Use `{{name}}` and `{{name|default}}` syntax with Insert & Copy
+- **✅ Auto-Backup**: Configurable automatic backups with local ring buffer storage
 - **✅ Instant Search**: Lightning-fast prompt filtering with 150ms debounce
 - **✅ Multi-Tag Filters**: Filter by multiple tags with AND logic
 - **✅ One-Click Copy**: Copy prompt content to clipboard with toast feedback
+- **✅ Duplicate Prompts**: Duplicate existing prompts with one click
 - **✅ Export/Import**: JSON and Markdown export with merge/replace import options
 - **✅ URL State**: Search query and tag filters persist in URL
-- **✅ Keyboard Shortcuts**: `/` to search, `n` for new prompt, `Ctrl+Enter` to save
+- **✅ Keyboard Shortcuts**: `/` to search, `n` for new prompt, `b` for settings
 - **✅ Accessibility**: Full ARIA support, focus management, screen reader friendly
 - **✅ Client-Side**: No backend required, works entirely in the browser
 - **✅ Dark Mode**: Beautiful dark interface by default
@@ -22,8 +25,11 @@ A fast, client-side prompt library with tags, instant search, one-click copy, an
 
 - **`/`** - Focus search input
 - **`n`** - Create new prompt  
+- **`b`** - Open settings panel
 - **`Escape`** - Clear search and filters, or close modal
 - **`Ctrl/Cmd + Enter`** - Save prompt in modal
+- **`Enter`** - Confirm in placeholder modal
+- **`Escape`** - Close placeholder modal
 
 ## 🛠 Tech Stack
 
@@ -109,6 +115,77 @@ LocalStorage key: `promptboard:v1`
   ]
 }
 ```
+
+## 🔀 Placeholders & Insert & Copy
+
+### Variable Syntax
+
+Use placeholders in your prompt content with the following syntax:
+
+- **`{{name}}`** - Simple placeholder that must be filled
+- **`{{name|default}}`** - Placeholder with default value
+
+### Auto-Values
+
+Special placeholders that are automatically filled:
+
+- **`{{today}}`** - Current date (YYYY-MM-DD format)
+- **`{{now}}`** - Current date and time (YYYY-MM-DD HH:mm format)
+
+### Usage Examples
+
+```
+Hello {{name}},
+
+Today is {{today}} and I'm writing to discuss {{topic|the project}}.
+
+Please review the document by {{deadline}}.
+
+Best regards,
+{{signature|Your Name}}
+```
+
+### Insert & Copy Flow
+
+1. **Detect Variables**: Prompts with placeholders show a purple "Insert & Copy" button
+2. **Fill Variables**: Click the button to open a modal with input fields for each placeholder
+3. **Auto-Complete**: Previously used values for each prompt are remembered and pre-filled
+4. **Copy Result**: Processed text is automatically copied to clipboard
+
+### Cache Behavior
+
+- Variable values are cached per prompt in localStorage
+- Auto-values (`today`, `now`) are always current and not cached
+- Cache persists across browser sessions
+
+## 🔄 Auto-Backup System
+
+### Configuration
+
+Access via Settings panel (`b` key or ⚙️ button):
+
+- **Enable/Disable**: Toggle automatic backup on/off (default: ON)
+- **Threshold**: Set number of changes before backup triggers (default: 10)
+- **Counter**: View current changes count
+
+### Backup Types
+
+1. **Auto-Download**: Automatic file download when threshold is reached
+2. **Local Ring Buffer**: Keep last 3 backups in browser storage
+
+### Local Backups
+
+- **Max Storage**: 3 most recent backups
+- **Actions**: Download as JSON file or restore (merge/replace)
+- **Metadata**: Shows backup date and prompt count
+
+### Change Tracking
+
+Changes counted:
+- Create new prompt
+- Update existing prompt  
+- Delete prompt
+- Import prompts
 
 ## 📤 Export/Import
 

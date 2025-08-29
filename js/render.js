@@ -2,7 +2,7 @@
  * Render module - handles all UI rendering (app, cards, filters, toasts, modals)
  */
 
-import { sanitizeHTML, truncate, getFirstLine, formatDate } from './utils.js';
+import { sanitizeHTML, truncate, getFirstLine, formatDate, formatDateTime, createFocusTrap, parsePlaceholders } from './utils.js';
 
 /**
  * Render main application structure
@@ -30,6 +30,18 @@ export const renderApp = () => {
             </div>
             
             <div class="flex gap-2">
+                <button
+                    id="settings-btn"
+                    class="px-3 py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg font-medium transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-opacity-50"
+                    aria-label="Settings (Press B)"
+                    title="Settings"
+                >
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                    </svg>
+                </button>
+                
                 <button
                     id="new-prompt-btn"
                     class="px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50"
@@ -159,7 +171,19 @@ export const renderPromptCards = (prompts) => {
                 <h3 class="text-lg font-semibold text-white truncate flex-1 mr-4">
                     ${sanitizeHTML(prompt.title)}
                 </h3>
-                <div class="flex gap-2 flex-shrink-0">
+                <div class="flex gap-1 flex-shrink-0">
+                    ${parsePlaceholders(prompt.content).length > 0 ? `
+                    <button
+                        class="insert-copy-btn p-2 text-gray-400 hover:text-purple-400 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-opacity-50 rounded"
+                        data-id="${prompt.id}"
+                        title="Insert & Copy with variables"
+                        aria-label="Insert variables and copy"
+                    >
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v8a2 2 0 002 2h8a2 2 0 002-2V9a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"></path>
+                        </svg>
+                    </button>
+                    ` : ''}
                     <button
                         class="copy-btn p-2 text-gray-400 hover:text-green-400 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-opacity-50 rounded"
                         data-id="${prompt.id}"
@@ -171,7 +195,17 @@ export const renderPromptCards = (prompts) => {
                         </svg>
                     </button>
                     <button
-                        class="edit-btn p-2 text-gray-400 hover:text-blue-400 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 rounded"
+                        class="duplicate-btn p-2 text-gray-400 hover:text-blue-400 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 rounded"
+                        data-id="${prompt.id}"
+                        title="Duplicate prompt"
+                        aria-label="Duplicate prompt"
+                    >
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2"></path>
+                        </svg>
+                    </button>
+                    <button
+                        class="edit-btn p-2 text-gray-400 hover:text-yellow-400 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:ring-opacity-50 rounded"
                         data-id="${prompt.id}"
                         title="Edit prompt"
                         aria-label="Edit prompt"
@@ -389,6 +423,94 @@ export const showToast = (message, type = 'success', duration = 3000) => {
 };
 
 /**
+ * Show backup restore mode selection dialog
+ */
+export const showRestoreModeDialog = () => {
+    return new Promise((resolve) => {
+        const container = document.getElementById('modal-container');
+        if (!container) {
+            resolve(null);
+            return;
+        }
+
+        container.innerHTML = `
+            <div id="restore-overlay" class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+                <div
+                    id="restore-dialog"
+                    class="bg-gray-800 rounded-lg shadow-xl w-full max-w-md"
+                    role="dialog"
+                    aria-labelledby="restore-title"
+                    aria-modal="true"
+                >
+                    <div class="p-6">
+                        <h3 id="restore-title" class="text-lg font-semibold text-white mb-4">
+                            Restore Backup
+                        </h3>
+                        <p class="text-gray-300 mb-6">
+                            How would you like to restore this backup?
+                        </p>
+                        
+                        <div class="space-y-3 mb-6">
+                            <label class="flex items-center">
+                                <input type="radio" name="restore-mode" value="merge" checked 
+                                       class="mr-3 text-blue-600 focus:ring-blue-500 focus:ring-2">
+                                <div>
+                                    <div class="font-medium text-white">Merge</div>
+                                    <div class="text-sm text-gray-400">Add backup prompts, keep existing</div>
+                                </div>
+                            </label>
+                            
+                            <label class="flex items-center">
+                                <input type="radio" name="restore-mode" value="replace" 
+                                       class="mr-3 text-blue-600 focus:ring-blue-500 focus:ring-2">
+                                <div>
+                                    <div class="font-medium text-white">Replace</div>
+                                    <div class="text-sm text-gray-400">Replace all current prompts</div>
+                                </div>
+                            </label>
+                        </div>
+                        
+                        <div class="flex justify-end gap-3">
+                            <button
+                                id="restore-cancel-btn"
+                                class="px-4 py-2 text-gray-300 hover:text-white transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-opacity-50 rounded"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                id="restore-confirm-btn"
+                                class="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50"
+                            >
+                                Restore
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        const handleResolve = (result) => {
+            container.innerHTML = '';
+            resolve(result);
+        };
+
+        document.getElementById('restore-cancel-btn').onclick = () => handleResolve(null);
+        document.getElementById('restore-confirm-btn').onclick = () => {
+            const mode = document.querySelector('input[name="restore-mode"]:checked')?.value || 'merge';
+            handleResolve(mode);
+        };
+        document.getElementById('restore-overlay').onclick = (e) => {
+            if (e.target.id === 'restore-overlay') {
+                handleResolve(null);
+            }
+        };
+
+        // Focus confirm button
+        document.getElementById('restore-confirm-btn').focus();
+    });
+};
+
+/**
  * Show confirmation dialog
  */
 export const showConfirmDialog = (title, message, confirmText = 'Confirm', cancelText = 'Cancel') => {
@@ -450,4 +572,231 @@ export const showConfirmDialog = (title, message, confirmText = 'Confirm', cance
         // Focus confirm button
         document.getElementById('confirm-confirm-btn').focus();
     });
+};
+
+/**
+ * Render placeholder variables modal
+ */
+export const renderPlaceholderModal = (promptId, placeholders, cachedValues = {}) => {
+    const container = document.getElementById('modal-container');
+    if (!container) return;
+
+    const today = formatDateTime(false);
+    const now = formatDateTime(true);
+    
+    container.innerHTML = `
+        <div id="placeholder-overlay" class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+            <div
+                id="placeholder-dialog"
+                class="bg-gray-800 rounded-lg shadow-xl w-full max-w-lg max-h-[90vh] overflow-hidden"
+                role="dialog"
+                aria-labelledby="placeholder-title"
+                aria-modal="true"
+            >
+                <div class="flex justify-between items-center p-6 border-b border-gray-700">
+                    <h2 id="placeholder-title" class="text-xl font-semibold text-white">
+                        Insert Variables
+                    </h2>
+                    <button
+                        id="placeholder-close-btn"
+                        class="p-2 text-gray-400 hover:text-white transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-opacity-50 rounded"
+                        aria-label="Close modal"
+                    >
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                    </button>
+                </div>
+                
+                <div class="p-6">
+                    <div class="mb-4 text-sm text-gray-400">
+                        <p><strong>${placeholders.length}</strong> variable${placeholders.length !== 1 ? 's' : ''} found</p>
+                        <p class="mt-1">Syntax: <code class="bg-gray-700 px-1 rounded text-gray-300">{{name}}</code> or <code class="bg-gray-700 px-1 rounded text-gray-300">{{name|default}}</code></p>
+                    </div>
+                    
+                    <form id="placeholder-form" class="space-y-4">
+                        ${placeholders.map(placeholder => `
+                            <div>
+                                <label for="var-${placeholder.name}" class="block text-sm font-medium text-gray-300 mb-2">
+                                    <code class="bg-gray-700 px-2 py-1 rounded text-gray-300">{{${placeholder.name}}}</code>
+                                    ${placeholder.hasDefault ? `
+                                        <span class="text-xs text-gray-500 ml-2">default: "${placeholder.defaultValue}"</span>
+                                    ` : ''}
+                                </label>
+                                <input
+                                    type="text"
+                                    id="var-${placeholder.name}"
+                                    name="${placeholder.name}"
+                                    value="${sanitizeHTML(cachedValues[placeholder.name] || placeholder.defaultValue)}"
+                                    placeholder="${placeholder.hasDefault ? placeholder.defaultValue : `Value for ${placeholder.name}`}"
+                                    class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent text-white placeholder-gray-400"
+                                >
+                            </div>
+                        `).join('')}
+                        
+                        <div class="bg-gray-700 rounded-lg p-3 text-sm text-gray-400">
+                            <p><strong>Auto-values:</strong></p>
+                            <p>• <code class="text-gray-300">today</code>: ${today}</p>
+                            <p>• <code class="text-gray-300">now</code>: ${now}</p>
+                        </div>
+                        
+                        <div class="flex justify-end gap-3 mt-6">
+                            <button
+                                type="button"
+                                id="placeholder-cancel-btn"
+                                class="px-4 py-2 text-gray-300 hover:text-white transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-opacity-50 rounded"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="submit"
+                                id="placeholder-insert-btn"
+                                class="px-6 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-medium transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-opacity-50"
+                            >
+                                Insert & Copy
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    `;
+
+    // Store prompt ID for processing
+    document.getElementById('placeholder-dialog').dataset.promptId = promptId;
+    
+    // Focus first input
+    const firstInput = container.querySelector('input[type="text"]');
+    if (firstInput) {
+        setTimeout(() => firstInput.focus(), 100);
+    }
+};
+
+/**
+ * Render settings modal
+ */
+export const renderSettingsModal = (preferences, backups = []) => {
+    const container = document.getElementById('modal-container');
+    if (!container) return;
+
+    container.innerHTML = `
+        <div id="settings-overlay" class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+            <div
+                id="settings-dialog"
+                class="bg-gray-800 rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-hidden"
+                role="dialog"
+                aria-labelledby="settings-title"
+                aria-modal="true"
+            >
+                <div class="flex justify-between items-center p-6 border-b border-gray-700">
+                    <h2 id="settings-title" class="text-xl font-semibold text-white">
+                        Settings
+                    </h2>
+                    <button
+                        id="settings-close-btn"
+                        class="p-2 text-gray-400 hover:text-white transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-opacity-50 rounded"
+                        aria-label="Close settings"
+                    >
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                    </button>
+                </div>
+                
+                <div class="max-h-[60vh] overflow-y-auto">
+                    <!-- Auto-Backup Section -->
+                    <div class="p-6 border-b border-gray-700">
+                        <h3 class="text-lg font-medium text-white mb-4">Auto-Backup</h3>
+                        
+                        <div class="space-y-4">
+                            <label class="flex items-center">
+                                <input
+                                    type="checkbox"
+                                    id="auto-backup-enabled"
+                                    ${preferences.autoBackupEnabled ? 'checked' : ''}
+                                    class="mr-3 text-blue-600 focus:ring-blue-500 focus:ring-2"
+                                >
+                                <div>
+                                    <span class="font-medium text-white">Enable auto-backup</span>
+                                    <p class="text-sm text-gray-400">Automatically backup after changes</p>
+                                </div>
+                            </label>
+                            
+                            <div class="flex items-center gap-4">
+                                <label for="backup-threshold" class="text-sm font-medium text-gray-300">
+                                    Backup every
+                                </label>
+                                <input
+                                    type="number"
+                                    id="backup-threshold"
+                                    min="1"
+                                    max="100"
+                                    value="${preferences.autoBackupThreshold}"
+                                    class="w-20 px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-white"
+                                >
+                                <span class="text-sm text-gray-300">changes</span>
+                            </div>
+                            
+                            <div class="text-sm text-gray-400">
+                                <p>Changes: ${preferences.changeCounter || 0} / ${preferences.autoBackupThreshold}</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Local Backups Section -->
+                    <div class="p-6">
+                        <h3 class="text-lg font-medium text-white mb-4">Local Backups</h3>
+                        
+                        ${backups.length > 0 ? `
+                            <div class="space-y-3">
+                                ${backups.map(backup => `
+                                    <div class="bg-gray-700 rounded-lg p-4 flex justify-between items-center">
+                                        <div>
+                                            <div class="font-medium text-white">${backup.formattedDate}</div>
+                                            <div class="text-sm text-gray-400">${backup.promptCount} prompts</div>
+                                        </div>
+                                        <div class="flex gap-2">
+                                            <button
+                                                class="backup-download-btn px-3 py-1 text-sm bg-gray-600 hover:bg-gray-500 text-white rounded transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-opacity-50"
+                                                data-backup-id="${backup.id}"
+                                            >
+                                                Download
+                                            </button>
+                                            <button
+                                                class="backup-restore-btn px-3 py-1 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50"
+                                                data-backup-id="${backup.id}"
+                                            >
+                                                Restore
+                                            </button>
+                                        </div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        ` : `
+                            <div class="text-center py-8 text-gray-400">
+                                <svg class="mx-auto h-12 w-12 text-gray-600 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                                </svg>
+                                <p>No local backups available</p>
+                                <p class="text-sm mt-1">Backups will appear here after auto-backup triggers</p>
+                            </div>
+                        `}
+                        
+                        <div class="mt-4 text-xs text-gray-500">
+                            <p>Local backups are stored in browser storage (max 3 items)</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="flex justify-end gap-3 p-6 border-t border-gray-700">
+                    <button
+                        id="settings-save-btn"
+                        class="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50"
+                    >
+                        Save Settings
+                    </button>
+                </div>
+            </div>
+        </div>
+    `;
 };

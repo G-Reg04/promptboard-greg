@@ -2,8 +2,8 @@
  * Logic module - handles CRUD operations, search, filtering, and clipboard functionality
  */
 
-import { getState, setState, uuid, now } from './storage.js';
-import { sanitizeTags, parseTagsString, escapeRegex, copyToClipboard, simpleHash } from './utils.js';
+import { getState, setState, uuid, now, incrementChangeCounter, getPromptVariables, setPromptVariables } from './storage.js';
+import { sanitizeTags, parseTagsString, escapeRegex, copyToClipboard, simpleHash, parsePlaceholders, applyPlaceholders } from './utils.js';
 import { showToast } from './render.js';
 
 /**
@@ -49,6 +49,9 @@ export const createPrompt = (data) => {
         throw new Error('Failed to save prompt');
     }
 
+    // Increment change counter for auto-backup
+    incrementChangeCounter();
+
     return prompt;
 };
 
@@ -87,6 +90,9 @@ export const updatePrompt = (id, data) => {
         throw new Error('Failed to update prompt');
     }
 
+    // Increment change counter for auto-backup
+    incrementChangeCounter();
+
     return updatedPrompt;
 };
 
@@ -106,6 +112,9 @@ export const deletePrompt = (id) => {
     if (!setState(state)) {
         throw new Error('Failed to delete prompt');
     }
+
+    // Increment change counter for auto-backup
+    incrementChangeCounter();
 
     return true;
 };
@@ -335,6 +344,9 @@ export const batchCreatePrompts = (promptsData, mode = 'merge') => {
         if (!setState(state)) {
             throw new Error('Failed to save imported prompts');
         }
+        
+        // Increment change counter for auto-backup
+        incrementChangeCounter();
     }
 
     return results;
@@ -360,4 +372,115 @@ export const getPromptStats = () => {
             ? Math.max(...prompts.map(p => p.updatedAt)) 
             : null
     };
+};
+
+/**
+ * Detect placeholders in prompt content
+ */
+export const detectPromptPlaceholders = (promptId) => {
+    const prompt = getPromptById(promptId);
+    if (!prompt || !prompt.content) {
+        return [];
+    }
+    
+    return parsePlaceholders(prompt.content);
+};
+
+/**
+ * Get cached variables for prompt with auto values
+ */
+export const getPromptVariablesWithAuto = (promptId) => {
+    const prompt = getPromptById(promptId);
+    const cachedVars = getPromptVariables(promptId);
+    const autoVars = {};
+    
+    if (prompt && prompt.content) {
+        // Add auto values if they exist as placeholders
+        if (prompt.content.includes('{{today}}')) {
+            autoVars.today = new Date().toISOString().split('T')[0];
+        }
+        if (prompt.content.includes('{{now}}')) {
+            const now = new Date();
+            const hours = String(now.getHours()).padStart(2, '0');
+            const minutes = String(now.getMinutes()).padStart(2, '0');
+            autoVars.now = `${now.toISOString().split('T')[0]} ${hours}:${minutes}`;
+        }
+    }
+    
+    return { ...cachedVars, ...autoVars };
+};
+
+/**
+ * Apply placeholders and copy to clipboard
+ */
+export const insertAndCopyPrompt = async (promptId, variables = {}) => {
+    const prompt = getPromptById(promptId);
+    if (!prompt) {
+        showToast('Prompt not found', 'error');
+        return false;
+    }
+
+    if (!prompt.content) {
+        showToast('No content to process', 'warning');
+        return false;
+    }
+
+    // Apply placeholders
+    const result = applyPlaceholders(prompt.content, variables);
+    
+    // Save used variables to cache (excluding auto values)
+    const varsToCache = { ...variables };
+    delete varsToCache.today;
+    delete varsToCache.now;
+    setPromptVariables(promptId, varsToCache);
+
+    try {
+        const success = await copyToClipboard(result.text);
+        if (success) {
+            if (result.missing.length > 0) {
+                showToast(`Inserted & Copied! Missing values for: ${result.missing.join(', ')}`, 'warning', 4000);
+            } else {
+                showToast('Inserted & Copied!', 'success');
+            }
+            return true;
+        } else {
+            showToast('Failed to copy', 'error');
+            return false;
+        }
+    } catch (error) {
+        console.error('Insert and copy failed:', error);
+        showToast('Failed to copy', 'error');
+        return false;
+    }
+};
+
+/**
+ * Duplicate an existing prompt
+ */
+export const duplicatePrompt = (promptId) => {
+    const originalPrompt = getPromptById(promptId);
+    if (!originalPrompt) {
+        throw new Error('Prompt not found');
+    }
+
+    const duplicatedPrompt = {
+        id: uuid(),
+        title: `${originalPrompt.title} (copy)`,
+        content: originalPrompt.content,
+        tags: [...originalPrompt.tags],
+        createdAt: now(),
+        updatedAt: now()
+    };
+
+    const state = getState();
+    state.prompts = [...state.prompts, duplicatedPrompt];
+    
+    if (!setState(state)) {
+        throw new Error('Failed to duplicate prompt');
+    }
+
+    // Increment change counter for auto-backup
+    incrementChangeCounter();
+
+    return duplicatedPrompt;
 };
